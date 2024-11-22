@@ -1,0 +1,153 @@
+Tangle Protocol Consensus Specification: End-to-End Flow
+1. Address Evolution and State Binding
+1.1 Root Address Generation
+CopyA₀ = BLAKE3("tangle-root-address" || M || S₀)
+P₀ = A₀ * G_curve25519
+Where:
+
+M: 256-bit master seed (securely generated random value)
+S₀: 256-bit initial salt (random value)
+G_curve25519: Curve25519 base point
+
+1.2 Evolutionary Address Formation
+For address index i:
+CopySᵢ = BLAKE3("tangle-evolve" || M || Sᵢ₋₁ || Tᵢ₋₁ || Rᵢ₋₁)
+Aᵢ = BLAKE3("tangle-address" || M || Sᵢ)
+Pᵢ = Aᵢ * G_curve25519
+Where:
+
+Tᵢ₋₁: Hash of previous transaction from this address
+Rᵢ₋₁: Final state hash of round containing Tᵢ₋₁
+Sᵢ: New salt incorporating state
+
+2. Transaction Commitment Structure
+2.1 Base Commitment Formation
+Copy1. Data Binding:
+D = BLAKE3("tangle-data" || T)
+
+2. Address Binding:
+A = BLAKE3("tangle-proof" || D || M || Sᵢ)
+
+3. State Reference:
+S = BLAKE3("tangle-state" || D || Tᵢ₋₁ || Rᵢ₋₁)
+
+4. Temporal Binding:
+τ = BLAKE3("tangle-time" || D || R_current)
+
+5. Final Commitment:
+C = BLAKE3("tangle-commit" || D || A || S || τ)
+Where:
+
+T: Raw transaction data
+R_current: Current round seed
+Each component adds a specific binding property
+
+2.2 Zero-Knowledge Proofs
+
+Address Evolution Proof:
+
+Copyπ_addr = Prove{
+    (M, Sᵢ₋₁, Tᵢ₋₁, Rᵢ₋₁):
+    Sᵢ = BLAKE3("tangle-evolve" || M || Sᵢ₋₁ || Tᵢ₋₁ || Rᵢ₋₁) ∧
+    Aᵢ = BLAKE3("tangle-address" || M || Sᵢ)
+}
+
+State Incorporation Proof:
+
+Copyπ_state = Prove{
+    (Tᵢ₋₁, Rᵢ₋₁):
+    S = BLAKE3("tangle-state" || D || Tᵢ₋₁ || Rᵢ₋₁)
+}
+3. Double State Verification
+3.1 Historical State Check
+Copy1. Verify Previous Transaction:
+prev_hash = BLAKE3("tangle-history" || Tᵢ₋₁)
+Verify(prev_hash exists in chain)
+
+2. Verify Round State:
+round_hash = BLAKE3("tangle-round" || Rᵢ₋₁)
+Verify(round_hash matches historical round)
+3.2 Current State Check
+Copy1. Round Binding:
+current_round = BLAKE3("tangle-current" || R_current)
+Verify(current_round matches active round)
+
+2. Temporal Window:
+Verify(|timestamp - current_time| ≤ MAX_TIME_DRIFT)
+4. Geometric Position Assignment
+4.1 Transaction Position (Curve25519)
+Copy1. Position Scalar:
+s_tx = BLAKE3("tangle-position" || C) mod L_curve25519
+
+2. Position Point:
+P_tx = s_tx * G_curve25519
+4.2 Node Position (Ed25519)
+Copy1. Node Scalar:
+s_node = BLAKE3("tangle-node" || node_id) mod L_ed25519
+
+2. Position Point:
+P_node = s_node * G_ed25519
+4.3 Assignment Distance
+Copy1. Geometric Distance:
+d = √[(P_tx.x - P_node.x)² + (P_tx.y - P_node.y)²]
+
+2. Ring Position:
+θ = d mod 2²⁵⁶
+5. Commitment Set Validation
+5.1 Commitment Hash Formation
+For a commitment C:
+Copycommitment_hash = BLAKE3("tangle-commit-final" || 
+    D ||        // Data binding
+    A ||        // Address binding
+    S ||        // State reference
+    τ ||        // Temporal binding
+    π_addr ||   // Address evolution proof
+    π_state     // State incorporation proof
+)
+5.2 Set XOR Validation
+Copy1. For a set of commitment hashes {h₁, h₂, ..., hₙ}, first hash each:
+H₁ = BLAKE3("tangle-set-hash" || h₁)
+H₂ = BLAKE3("tangle-set-hash" || h₂)
+...
+Hₙ = BLAKE3("tangle-set-hash" || hₙ)
+
+2. Set XOR (O(1)):
+set_xor = H₁ ⊕ H₂ ⊕ ... ⊕ Hₙ
+
+3. Set Validation (O(1)):
+received_set_xor = XOR of all received commitment hash hashes
+Verify(received_set_xor == declared_set_xor)
+
+4. Individual Commitment Validation (O(1) per commitment):
+Verify commitment C:
+    a. Validate π_addr and π_state
+    b. Verify double state check
+    c. Calculate θ = distance(P_tx, P_node) mod 2²⁵⁶
+    d. Verify θ in node's responsibility zone
+    e. Calculate commitment_hash
+    f. Hash commitment_hash: H = BLAKE3("tangle-set-hash" || commitment_hash)
+    g. Verify H exists in set by checking XOR combination
+6. Properties and Guarantees
+6.1 Security Properties
+
+Perfect Forward Security: One-way address evolution
+Double State Protection: Historical and current state binding
+Temporal Isolation: Round-based commitment separation
+Position Binding: Dual-curve geometric assignment
+Set Consistency: Order-independent XOR aggregation
+
+6.2 Mathematical Guarantees
+
+Address Evolution: Cannot generate Aᵢ₊₁ without knowledge of M
+State Binding: Cannot create valid commitment without correct state
+Position Assignment: Natural load distribution through geometric distance
+Set Formation: Convergent XOR regardless of commitment order
+
+6.3 Performance Characteristics
+
+Address Evolution: O(1) per address
+Commitment Formation: O(1) per commitment
+Position Calculation: O(1) geometric operations
+Individual Commitment Validation: O(1) per commitment
+Set Validation: O(1) XOR comparison
+Total Flow: O(1) for set validation, regardless of commitment count
